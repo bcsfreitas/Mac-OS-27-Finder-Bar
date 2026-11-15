@@ -66,7 +66,7 @@ A barra roda num processo próprio do Windhawk (aparece como Windhawk no Gerenci
 - O modo de energia e a economia de energia usam funções não documentadas do Windows; se o Windows recusar, o bloco abre a página certa das Configurações.
 - A gravação de tela usa Win+Shift+R e precisa da Ferramenta de Captura atualizada.
 - Responder pela pílula funciona com apps que registram um ativador de notificações no Windows; senão, a pílula abre o app e copia o seu texto.
-- Com o vidro ao vivo (e o fundo líquido da barra), a barra e os painéis não aparecem em capturas de tela.
+- Com o vidro ao vivo, os fundos líquidos da barra e o fundo Vidro sem "ao vivo", a barra (e, com o vidro ao vivo, os painéis) não aparece em capturas de tela.
 - Se o próprio Windhawk rodar como administrador (modo portátil aberto elevado), a barra não mostra os ícones da bandeja: deixar os dados da bandeja do shell chegarem a uma barra elevada também deixaria qualquer app mandar ícones falsos para ela.
 
 ## Licença

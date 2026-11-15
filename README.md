@@ -66,7 +66,7 @@ The bar runs in its own Windhawk process (shown as Windhawk in Task Manager), so
 - Power mode and energy saver use undocumented Windows functions; if Windows refuses, the tile opens the matching Settings page.
 - Screen recording uses Win+Shift+R and needs an up-to-date Snipping Tool.
 - Replying from the pill works with apps that register a notification activator with Windows; otherwise the pill opens the app and copies your text.
-- With live glass (and the bar's liquid background), the bar and panels don't show up in screenshots.
+- With live glass, the bar's liquid backgrounds and the Glass background without "live", the bar (and, with live glass, the panels) doesn't show up in screenshots.
 - If Windhawk itself runs as administrator (portable mode started elevated), the bar doesn't show the tray icons: letting the shell's tray data reach an elevated bar would also let any app send it fake icons.
 
 ## License
