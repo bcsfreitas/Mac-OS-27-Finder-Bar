@@ -357,6 +357,7 @@ struct Settings {
                    // 5 claro, 6 escuro, 7 OLED (fundos sólidos)
     DWORD tintColor;          // Vidro líquido personalizado: a cor (0xRRGGBB)
     int tintLevel, tintReach;  // força da cor no topo e até onde ela desce (%)
+    int solidOpacity;          // opacidade do fundo Claro, Escuro e OLED da barra (%)
     int selBar;  // cor da seleção (barra, menus e pílulas): índice em kSelPalette, -1 = fosca
     int searchTarget;     // ícone de busca: 0 pesquisa do Windows, 1 Siri Plus Launchpad
     int openAnim;  // 0 nenhuma, 1 esmaecer, 2 cascata
@@ -556,6 +557,7 @@ static const UiDefault kUiDefaults[] = {
     {L"tintColor", L"#050505"},
     {L"tintLevel", L"100"},
     {L"tintReach", L"29"},
+    {L"solidOpacity", L"100"},
     {L"selectionBar", L"blue"},
     {L"allMonitors", L"1"},
     {L"autoHide", L"0"},
@@ -911,6 +913,7 @@ static void LoadSettings() {
         s.tintLevel = std::clamp(OvrInt(L"tintLevel"), 0, 100);
         s.tintReach = std::clamp(OvrInt(L"tintReach"), 0, 100);
     }
+    s.solidOpacity = std::clamp(OvrInt(L"solidOpacity"), 0, 100);
     s.selBar = SelIndex(OvrStr(L"selectionBar"));
     s.searchTarget = OvrStr(L"searchTarget") == L"siri" ? 1 : 0;
     SetUiLangChoice(OvrStr(L"language"));
@@ -12870,7 +12873,7 @@ enum BsVal {
     BV_G_REFRACT, BV_G_BLUR, BV_G_LIVE, BV_WEATHER, BV_BARSTYLE, BV_HEIGHT, BV_FONT, BV_BSSTYLE, BV_BSTRANSP, BV_SELBAR, BV_UPDATES,
     BV_G_TINT, BV_SEARCHTGT, BV_LANG, BV_NPBAR, BV_ICSADD, BV_ICSCLEAR,
     BV_TCOLOR, BV_TLEVEL, BV_TREACH, BV_CCCLOSE, BV_NTFSHAPE, BV_TEXTCOLOR, BV_DISK, BV_BARMON, BV_HIDEMAX, BV_HANDLE,
-    BV_THEMEHEAD, BV_TGROUP, BV_THEMENONE, BV_THEMERESET,  // Personalizar tema
+    BV_THEMEHEAD, BV_TGROUP, BV_THEMENONE, BV_THEMERESET, BV_SOLIDOP,  // Personalizar tema
     BV_PANELLOOK, BV_PANELSTYLE,                           // Tema dos painéis
     BV_NTFLAYOUT,                                          // painel do sino: caixa ou cartões
     BV_THEMECLEAR,                                         // Personalizar tema: Transparente
@@ -12975,6 +12978,7 @@ static const BsRowDef kBsRows[] = {
     {BR_HEADER, BV_NONE, L"Personalizar tema", 0xE790, 0x5AC8FA, L"Ajusta o tema escolhido em Fundo da barra; vale também para os menus, a Central, os painéis e as pílulas"},
     {BR_GROUP, BV_THEMEHEAD, L"Tema", 0, 0},
     {BR_NOTE, BV_THEMENONE, L"Claro, Escuro e OLED são cores sólidas, sem ajustes de vidro.", 0, 0},
+    {BR_SLIDER, BV_SOLIDOP, L"Opacidade do fundo", 0, 0, L"Claro, Escuro e OLED: 100 = cor sólida; menos deixa a área de trabalho aparecer atrás da barra"},
     {BR_CHOICE, BV_CLEARMENUS, L"Tema dos menus", 0, 0, L"Com a barra Transparente: o tema dos menus, da Central e dos painéis; os ajustes abaixo personalizam esse tema"},
     {BR_NOTE, BV_THEMECLEAR, L"No tema Transparente a barra fica sem vidro (puxando para fosco, ganha só um véu); os outros ajustes valem para o vidro líquido dos painéis.", 0, 0},
     {BR_SLIDER, BV_G_TINT, L"Transparente ↔ fosco", 0, 0, L"À esquerda o vidro limpo; à direita, mais fosco"},
@@ -13307,6 +13311,7 @@ static int BsGet(int val) {
         case BV_TCOLOR: return TintPaletteIndex();
         case BV_TLEVEL: return g_settings.tintLevel;
         case BV_TREACH: return g_settings.tintReach;
+        case BV_SOLIDOP: return g_settings.solidOpacity;
         case BV_BSSTYLE: return g_bsStyle;
         case BV_ISLSTYLE: return g_settings.islStyle >= 3 ? g_settings.islStyle - 1 : g_settings.islStyle;  // sem o 2
         case BV_ISLSIZE: return std::clamp((g_settings.islSize - 80) * 100 / 60, 0, 100);
@@ -13644,6 +13649,12 @@ static void BsSet(int val, int v) {
         TintApply();
         return;
     }
+    if (val == BV_SOLIDOP) {
+        g_settings.solidOpacity = std::clamp(v, 0, 100);
+        OvrSetInt(L"solidOpacity", g_settings.solidOpacity);
+        RedrawAll();
+        return;
+    }
     v = std::clamp(v, 0, 100);
     switch (val) {
         // Os ajustes do tema que está sendo personalizado (cada um guarda os seus).
@@ -13854,6 +13865,7 @@ static int ThemeEdit() {
 // Personalizar tema: só os ajustes que valem para o tema escolhido.
 static const unsigned kThemeGlass = 0x1F;    // vidro, transparente, líquido, personalizado, cor da janela
 static const unsigned kThemeTinted = 0x08;   // personalizado
+static const unsigned kThemeSolid = 0xE0;    // claro, escuro, OLED
 static bool BsRowShown(const BsRowDef& d) {
     if (BvIsMon(d.val)) return g_settings.barPerMon && BsMonAt(BvMonIndex(d.val), nullptr);
     if (d.val == BV_TEXTCOLOR) return !g_settings.barPerMon;
@@ -13869,8 +13881,9 @@ static bool BsRowShown(const BsRowDef& d) {
         case BV_G_LIVE: return e != 0;  // todos os de vidro, o Transparente também (os painéis dele)
         case BV_TGROUP: case BV_TCOLOR: case BV_TLEVEL: case BV_TREACH: return (e & kThemeTinted) != 0;
         case BV_THEMENONE: return (t & kThemeGlass) == 0;
+        case BV_SOLIDOP: return (t & kThemeSolid) != 0;
         case BV_THEMECLEAR: return e == 0x02;
-        case BV_THEMERESET: return e != 0;
+        case BV_THEMERESET: return e != 0 || (t & kThemeSolid) != 0;
     }
     return true;
 }
@@ -22037,6 +22050,15 @@ static void BsAction(int val) {
             break;
         case BV_THEMERESET: {
             // Só o tema que está sendo personalizado volta ao padrão.
+            unsigned inUse = BsThemesInUse();
+            if (inUse & kThemeSolid) {
+                g_settings.solidOpacity = 100;
+                OvrSetInt(L"solidOpacity", 100);
+            }
+            if (!(inUse & kThemeGlass)) {
+                RedrawAll();
+                break;
+            }
             int k = ThemeEdit();
             g_themeGlass[k] = ThemeGlass();
             g_themeGlass[k].live = k == 0 || k == 4;  // o Vidro e a Cor da janela começam ao vivo
@@ -23165,10 +23187,11 @@ static void Render(Bar* b) {
         b->rt->FillRectangle(D2D1::RectF(0, 0, w, h), b->brush);
     }
     if (see && bst >= 5) {
-        // Claro, escuro e OLED: fundo sólido, sem vidro.
-        b->brush->SetColor(bst == 5 ? D2D1::ColorF(0.95f, 0.95f, 0.96f, 1.0f)
-                           : bst == 6 ? D2D1::ColorF(0.11f, 0.11f, 0.12f, 1.0f)
-                                                      : D2D1::ColorF(0, 0, 0, 1.0f));
+        // Claro, escuro e OLED: fundo sólido, sem vidro, na opacidade escolhida.
+        float op = g_settings.solidOpacity / 100.0f;
+        b->brush->SetColor(bst == 5 ? D2D1::ColorF(0.95f, 0.95f, 0.96f, op)
+                           : bst == 6 ? D2D1::ColorF(0.11f, 0.11f, 0.12f, op)
+                                                      : D2D1::ColorF(0, 0, 0, op));
         b->rt->FillRectangle(D2D1::RectF(0, 0, w, h), b->brush);
     }
     if (see && (bst == 1 || bst == 4)) {
@@ -25616,6 +25639,8 @@ const UiTr kUiTr[] = {
     {L"Ajusta o tema escolhido em Fundo da barra; vale também para os menus, a Central, os painéis e as pílulas", L"Adjusts the theme chosen in Bar background; it also applies to menus, the Control Center, panels and pills", L"Ajusta el tema elegido en Fondo de la barra; vale también para los menús, el Centro de control, los paneles y las píldoras", L"Règle le thème choisi dans Fond de la barre ; s’applique aussi aux menus, au Centre de contrôle, aux panneaux et aux pastilles", L"Passt das unter Leistenhintergrund gewählte Design an; gilt auch für Menüs, Kontrollzentrum, Bereiche und Pillen", L"Regola il tema scelto in Sfondo della barra; vale anche per menu, Centro di Controllo, pannelli e pillole", L"调整在“菜单栏背景”中选择的主题；也适用于菜单、控制中心、面板和胶囊"},
     {L"Tema", L"Theme", L"Tema", L"Thème", L"Design", L"Tema", L"主题"},
     {L"Claro, Escuro e OLED são cores sólidas, sem ajustes de vidro.", L"Light, Dark and OLED are solid colors, with no glass settings.", L"Claro, Oscuro y OLED son colores sólidos, sin ajustes de vidrio.", L"Clair, Sombre et OLED sont des couleurs unies, sans réglages de verre.", L"Hell, Dunkel und OLED sind Volltonfarben, ohne Glaseinstellungen.", L"Chiaro, Scuro e OLED sono colori pieni, senza impostazioni del vetro.", L"浅色、深色和 OLED 是纯色，没有玻璃设置。"},
+    {L"Opacidade do fundo", L"Background opacity", L"Opacidad del fondo", L"Opacité du fond", L"Deckkraft des Hintergrunds", L"Opacità dello sfondo", L"背景不透明度"},
+    {L"Claro, Escuro e OLED: 100 = cor sólida; menos deixa a área de trabalho aparecer atrás da barra", L"Light, Dark and OLED: 100 = solid color; lower lets the desktop show through behind the bar", L"Claro, Oscuro y OLED: 100 = color sólido; menos deja ver el escritorio detrás de la barra", L"Clair, Sombre et OLED : 100 = couleur unie ; moins laisse voir le bureau derrière la barre", L"Hell, Dunkel und OLED: 100 = Volltonfarbe; weniger lässt den Desktop hinter der Leiste durchscheinen", L"Chiaro, Scuro e OLED: 100 = colore pieno; meno lascia vedere il desktop dietro la barra", L"浅色、深色和 OLED：100 = 纯色；数值越低，栏后面的桌面越能透出来"},
     {L"Restaurar o padrão deste tema", L"Restore this theme’s defaults", L"Restaurar los valores predeterminados de este tema", L"Restaurer les valeurs par défaut de ce thème", L"Standard dieses Designs wiederherstellen", L"Ripristina le impostazioni predefinite di questo tema", L"恢复此主题的默认设置"},
     {L"Volta os ajustes acima aos valores de quando o mod foi instalado", L"Puts the settings above back to their values when the mod was installed", L"Devuelve los ajustes de arriba a sus valores de cuando se instaló el mod", L"Remet les réglages ci-dessus à leurs valeurs d’installation du mod", L"Setzt die Einstellungen oben auf die Werte bei der Installation zurück", L"Riporta le impostazioni qui sopra ai valori di quando la mod è stata installata", L"将上面的设置恢复为安装模组时的值"},
     {L"Tema dos painéis", L"Panel theme", L"Tema de los paneles", L"Thème des panneaux", L"Design der Bereiche", L"Tema dei pannelli", L"面板主题"},
