@@ -357,8 +357,9 @@ struct Settings {
                    // 5 claro, 6 escuro, 7 OLED (fundos sólidos)
     DWORD tintColor;          // Vidro líquido personalizado: a cor (0xRRGGBB)
     int tintLevel, tintReach;  // força da cor no topo e até onde ela desce (%)
+    int solidOpacity;          // opacidade do fundo Claro, Escuro e OLED da barra (%)
     int selBar;  // cor da seleção (barra, menus e pílulas): índice em kSelPalette, -1 = fosca
-    int searchTarget;     // ícone de busca: 0 pesquisa do Windows, 1 Siri Plus Launchpad
+    int searchTarget;     // ícone de busca: 0 pesquisa do Windows, 1 Siri Plus Launchpad, 2 Raycast
     int openAnim;  // 0 nenhuma, 1 esmaecer, 2 cascata
     int ntfIconShape;  // ícones das notificações: 0 círculo, 1 formato macOS (squircle)
     bool ntfCards;     // painel do sino: cartões soltos (true) ou tudo dentro da caixa
@@ -556,6 +557,7 @@ static const UiDefault kUiDefaults[] = {
     {L"tintColor", L"#050505"},
     {L"tintLevel", L"100"},
     {L"tintReach", L"29"},
+    {L"solidOpacity", L"100"},
     {L"selectionBar", L"blue"},
     {L"allMonitors", L"1"},
     {L"autoHide", L"0"},
@@ -911,8 +913,12 @@ static void LoadSettings() {
         s.tintLevel = std::clamp(OvrInt(L"tintLevel"), 0, 100);
         s.tintReach = std::clamp(OvrInt(L"tintReach"), 0, 100);
     }
+    s.solidOpacity = std::clamp(OvrInt(L"solidOpacity"), 0, 100);
     s.selBar = SelIndex(OvrStr(L"selectionBar"));
-    s.searchTarget = OvrStr(L"searchTarget") == L"siri" ? 1 : 0;
+    {
+        std::wstring st = OvrStr(L"searchTarget");
+        s.searchTarget = st == L"siri" ? 1 : st == L"raycast" ? 2 : 0;
+    }
     SetUiLangChoice(OvrStr(L"language"));
     {
         std::wstring a = ReadStr(L"openAnim");
@@ -12870,7 +12876,7 @@ enum BsVal {
     BV_G_REFRACT, BV_G_BLUR, BV_G_LIVE, BV_WEATHER, BV_BARSTYLE, BV_HEIGHT, BV_FONT, BV_BSSTYLE, BV_BSTRANSP, BV_SELBAR, BV_UPDATES,
     BV_G_TINT, BV_SEARCHTGT, BV_LANG, BV_NPBAR, BV_ICSADD, BV_ICSCLEAR,
     BV_TCOLOR, BV_TLEVEL, BV_TREACH, BV_CCCLOSE, BV_NTFSHAPE, BV_TEXTCOLOR, BV_DISK, BV_BARMON, BV_HIDEMAX, BV_HANDLE,
-    BV_THEMEHEAD, BV_TGROUP, BV_THEMENONE, BV_THEMERESET,  // Personalizar tema
+    BV_THEMEHEAD, BV_TGROUP, BV_THEMENONE, BV_THEMERESET, BV_SOLIDOP,  // Personalizar tema
     BV_PANELLOOK, BV_PANELSTYLE,                           // Tema dos painéis
     BV_NTFLAYOUT,                                          // painel do sino: caixa ou cartões
     BV_THEMECLEAR,                                         // Personalizar tema: Transparente
@@ -12911,7 +12917,7 @@ static const BsRowDef kBsRows[] = {
     {BR_ITEM, BV_FOCUS, L"Foco (quando ativo)", 0xE708, 0x5E5CE6},
     {BR_ITEM, BV_SEARCH, L"Busca", 0xE721, 0x8E8E93},
     {BR_ITEM, BV_DISK, L"Discos", 0xEDA2, 0x8E8E93, L"Clique para ver os discos e quanto cada um está cheio"},
-    {BR_CHOICE, BV_SEARCHTGT, L"A busca abre", 0, 0, L"Siri Plus: a janela padrão dele, no estilo Spotlight"},
+    {BR_CHOICE, BV_SEARCHTGT, L"A busca abre", 0, 0, L"Siri Plus: a janela padrão dele, no estilo Spotlight. Raycast: a busca dele (precisa estar instalado)"},
     {BR_ITEM, BV_ISLHIST, L"Notificações (sino)", 0xEA8F, 0xFF375F, L"O sino abre as notificações e os avisos guardados"},
     {BR_ITEM, BV_PRIV, L"Privacidade (microfone e câmera)", 0xE720, 0xFF9F0A, L"Laranja e verde quando um app usa o microfone ou a câmera; clique para ver quem está usando e silenciar o microfone"},
     {BR_HEADER, BV_NONE, L"Barra", 0xE771, 0x0A84FF, L"Idioma, temas, tamanho e comportamento da barra"},
@@ -12975,6 +12981,7 @@ static const BsRowDef kBsRows[] = {
     {BR_HEADER, BV_NONE, L"Personalizar tema", 0xE790, 0x5AC8FA, L"Ajusta o tema escolhido em Fundo da barra; vale também para os menus, a Central, os painéis e as pílulas"},
     {BR_GROUP, BV_THEMEHEAD, L"Tema", 0, 0},
     {BR_NOTE, BV_THEMENONE, L"Claro, Escuro e OLED são cores sólidas, sem ajustes de vidro.", 0, 0},
+    {BR_SLIDER, BV_SOLIDOP, L"Opacidade do fundo", 0, 0, L"Claro, Escuro e OLED: 100 = cor sólida; menos deixa a área de trabalho aparecer atrás da barra"},
     {BR_CHOICE, BV_CLEARMENUS, L"Tema dos menus", 0, 0, L"Com a barra Transparente: o tema dos menus, da Central e dos painéis; os ajustes abaixo personalizam esse tema"},
     {BR_NOTE, BV_THEMECLEAR, L"No tema Transparente a barra fica sem vidro (puxando para fosco, ganha só um véu); os outros ajustes valem para o vidro líquido dos painéis.", 0, 0},
     {BR_SLIDER, BV_G_TINT, L"Transparente ↔ fosco", 0, 0, L"À esquerda o vidro limpo; à direita, mais fosco"},
@@ -13307,6 +13314,7 @@ static int BsGet(int val) {
         case BV_TCOLOR: return TintPaletteIndex();
         case BV_TLEVEL: return g_settings.tintLevel;
         case BV_TREACH: return g_settings.tintReach;
+        case BV_SOLIDOP: return g_settings.solidOpacity;
         case BV_BSSTYLE: return g_bsStyle;
         case BV_ISLSTYLE: return g_settings.islStyle >= 3 ? g_settings.islStyle - 1 : g_settings.islStyle;  // sem o 2
         case BV_ISLSIZE: return std::clamp((g_settings.islSize - 80) * 100 / 60, 0, 100);
@@ -13436,8 +13444,9 @@ static void BsSet(int val, int v) {
         return;
     }
     if (val == BV_SEARCHTGT) {
-        g_settings.searchTarget = v == 1 ? 1 : 0;
-        OvrSetStr(L"searchTarget", g_settings.searchTarget ? L"siri" : L"windows");
+        static const PCWSTR kNames[] = {L"windows", L"siri", L"raycast"};
+        g_settings.searchTarget = v >= 0 && v <= 2 ? v : 0;
+        OvrSetStr(L"searchTarget", kNames[g_settings.searchTarget]);
         return;
     }
     if (val == BV_SELBAR) {
@@ -13642,6 +13651,12 @@ static void BsSet(int val, int v) {
         (val == BV_TLEVEL ? g_settings.tintLevel : g_settings.tintReach) = v;
         OvrSetInt(val == BV_TLEVEL ? L"tintLevel" : L"tintReach", v);
         TintApply();
+        return;
+    }
+    if (val == BV_SOLIDOP) {
+        g_settings.solidOpacity = std::clamp(v, 0, 100);
+        OvrSetInt(L"solidOpacity", g_settings.solidOpacity);
+        RedrawAll();
         return;
     }
     v = std::clamp(v, 0, 100);
@@ -13854,6 +13869,7 @@ static int ThemeEdit() {
 // Personalizar tema: só os ajustes que valem para o tema escolhido.
 static const unsigned kThemeGlass = 0x1F;    // vidro, transparente, líquido, personalizado, cor da janela
 static const unsigned kThemeTinted = 0x08;   // personalizado
+static const unsigned kThemeSolid = 0xE0;    // claro, escuro, OLED
 static bool BsRowShown(const BsRowDef& d) {
     if (BvIsMon(d.val)) return g_settings.barPerMon && BsMonAt(BvMonIndex(d.val), nullptr);
     if (d.val == BV_TEXTCOLOR) return !g_settings.barPerMon;
@@ -13869,8 +13885,9 @@ static bool BsRowShown(const BsRowDef& d) {
         case BV_G_LIVE: return e != 0;  // todos os de vidro, o Transparente também (os painéis dele)
         case BV_TGROUP: case BV_TCOLOR: case BV_TLEVEL: case BV_TREACH: return (e & kThemeTinted) != 0;
         case BV_THEMENONE: return (t & kThemeGlass) == 0;
+        case BV_SOLIDOP: return (t & kThemeSolid) != 0;
         case BV_THEMECLEAR: return e == 0x02;
-        case BV_THEMERESET: return e != 0;
+        case BV_THEMERESET: return e != 0 || (t & kThemeSolid) != 0;
     }
     return true;
 }
@@ -13988,7 +14005,7 @@ static const PCWSTR kBsWxProv[] = {L"Open-Meteo", L"MET Norway", L"wttr.in"};
 static const PCWSTR kBsWxUnit[] = {L"°C", L"°F"};
 static const PCWSTR kBsWxInt[] = {L"10 min", L"20 min", L"1 hora"};
 static const PCWSTR kBsWxLook[] = {L"Colorido", L"Vidro líquido", L"Vidro"};
-static const PCWSTR kBsSearchTgt[] = {L"Pesquisa do Windows", L"Siri Plus"};
+static const PCWSTR kBsSearchTgt[] = {L"Pesquisa do Windows", L"Siri Plus", L"Raycast"};
 static const PCWSTR kBsNpBar[] = {L"Linha", L"Linha colorida", L"Onda"};
 static const PCWSTR kBsLang[] = {L"Automático (Windows)", L"Português", L"English", L"Español",
                                  L"Français", L"Deutsch", L"Italiano", L"中文（简体）"};
@@ -14034,7 +14051,8 @@ static int BsChoiceCount(int val) {
     if (val >= BV_MONSTYLE0 && val < BV_MONTEXT0) return 8;
     if (val >= BV_MONTEXT0 && val < BV_MONEND) return 3;
     switch (val) {
-        case BV_ISLPOS: case BV_WXUNIT: case BV_SEARCHTGT: case BV_NTFSHAPE: case BV_NTFLAYOUT: return 2;
+        case BV_ISLPOS: case BV_WXUNIT: case BV_NTFSHAPE: case BV_NTFLAYOUT: return 2;
+        case BV_SEARCHTGT: return 3;
         case BV_FONTFAM:
             if (g_bsFonts.empty()) BsFontsRefresh();
             return (int)g_bsFonts.size();
@@ -22037,6 +22055,15 @@ static void BsAction(int val) {
             break;
         case BV_THEMERESET: {
             // Só o tema que está sendo personalizado volta ao padrão.
+            unsigned inUse = BsThemesInUse();
+            if (inUse & kThemeSolid) {
+                g_settings.solidOpacity = 100;
+                OvrSetInt(L"solidOpacity", 100);
+            }
+            if (!(inUse & kThemeGlass)) {
+                RedrawAll();
+                break;
+            }
             int k = ThemeEdit();
             g_themeGlass[k] = ThemeGlass();
             g_themeGlass[k].live = k == 0 || k == 4;  // o Vidro e a Cor da janela começam ao vivo
@@ -22079,10 +22106,21 @@ static void KbdNavApply() {
     if (g_settings.kbdNav) RegisterHotKey(g_owner, HOTKEY_KBDNAV, MOD_CONTROL | MOD_NOREPEAT, VK_F2);
 }
 
-// Ícone de busca: a janela padrão do Siri Plus Launchpad ou a pesquisa do Windows.
+// Ícone de busca: a janela padrão do Siri Plus Launchpad, o Raycast ou a pesquisa do Windows.
 // Os dois mods rodam no explorer.exe: a janela "WindhawkMacLaunchpad" do Siri Plus
 // abre (ou fecha) com WM_APP + 1, a mesma mensagem que a tecla Windows manda.
+// O Raycast (pacote da Microsoft Store) mostra a janela de busca quando é aberto de
+// novo; se ainda não estiver rodando, abrir o inicia.
 static void SearchOpen() {
+    if (g_settings.searchTarget == 2) {
+        SHELLEXECUTEINFOW sei = {sizeof(sei)};
+        sei.fMask = SEE_MASK_FLAG_NO_UI;
+        sei.lpVerb = L"open";
+        sei.lpFile = L"shell:AppsFolder\\Raycast.Raycast_qypenmj9wpt2a!Raycast";
+        sei.nShow = SW_SHOWNORMAL;
+        if (ShellExecuteExW(&sei)) return;
+        IslandShow(0xE721, 0x8E8E93, L"Raycast", L"Não encontrado: abrindo a pesquisa do Windows", L"", false, true);
+    }
     if (g_settings.searchTarget == 1) {
         if (HWND siri = FindWindowW(L"WindhawkMacLaunchpad", nullptr)) {
             PostMessageW(siri, WM_APP + 1, 0, 0);
@@ -23165,10 +23203,11 @@ static void Render(Bar* b) {
         b->rt->FillRectangle(D2D1::RectF(0, 0, w, h), b->brush);
     }
     if (see && bst >= 5) {
-        // Claro, escuro e OLED: fundo sólido, sem vidro.
-        b->brush->SetColor(bst == 5 ? D2D1::ColorF(0.95f, 0.95f, 0.96f, 1.0f)
-                           : bst == 6 ? D2D1::ColorF(0.11f, 0.11f, 0.12f, 1.0f)
-                                                      : D2D1::ColorF(0, 0, 0, 1.0f));
+        // Claro, escuro e OLED: fundo sólido, sem vidro, na opacidade escolhida.
+        float op = g_settings.solidOpacity / 100.0f;
+        b->brush->SetColor(bst == 5 ? D2D1::ColorF(0.95f, 0.95f, 0.96f, op)
+                           : bst == 6 ? D2D1::ColorF(0.11f, 0.11f, 0.12f, op)
+                                                      : D2D1::ColorF(0, 0, 0, op));
         b->rt->FillRectangle(D2D1::RectF(0, 0, w, h), b->brush);
     }
     if (see && (bst == 1 || bst == 4)) {
@@ -25483,7 +25522,8 @@ const UiTr kUiTr[] = {
     {L"Abrir Este Computador", L"Open This PC", L"Abrir Este equipo", L"Ouvrir Ce PC", L"Dieser PC öffnen", L"Apri Questo PC", L"打开此电脑"},
     {L"Armazenamento...", L"Storage...", L"Almacenamiento...", L"Stockage...", L"Speicher...", L"Archiviazione...", L"存储..."},
     {L"A busca abre", L"Search opens", L"La búsqueda abre", L"La recherche ouvre", L"Die Suche öffnet", L"La ricerca apre", L"搜索打开"},
-    {L"Siri Plus: a janela padrão dele, no estilo Spotlight", L"Siri Plus: its default window, Spotlight style", L"Siri Plus: su ventana predeterminada, estilo Spotlight", L"Siri Plus : sa fenêtre par défaut, style Spotlight", L"Siri Plus: sein Standardfenster im Spotlight-Stil", L"Siri Plus: la sua finestra predefinita, stile Spotlight", L"Siri Plus: 其默认窗口 (Spotlight 风格)"},
+    {L"Siri Plus: a janela padrão dele, no estilo Spotlight. Raycast: a busca dele (precisa estar instalado)", L"Siri Plus: its default window, Spotlight style. Raycast: its search (must be installed)", L"Siri Plus: su ventana predeterminada, estilo Spotlight. Raycast: su búsqueda (debe estar instalado)", L"Siri Plus : sa fenêtre par défaut, style Spotlight. Raycast : sa recherche (doit être installé)", L"Siri Plus: sein Standardfenster im Spotlight-Stil. Raycast: seine Suche (muss installiert sein)", L"Siri Plus: la sua finestra predefinita, stile Spotlight. Raycast: la sua ricerca (deve essere installato)", L"Siri Plus: 其默认窗口 (Spotlight 风格)。Raycast: 其搜索 (需要已安装)"},
+    {L"Não encontrado: abrindo a pesquisa do Windows", L"Not found: opening Windows Search", L"No encontrado: abriendo la búsqueda de Windows", L"Introuvable : ouverture de la recherche Windows", L"Nicht gefunden: Windows-Suche wird geöffnet", L"Non trovato: apertura della ricerca di Windows", L"未找到：正在打开 Windows 搜索"},
     {L"Privacidade (microfone e câmera)", L"Privacy (microphone and camera)", L"Privacidad (micrófono y cámara)", L"Confidentialité (micro et caméra)", L"Datenschutz (Mikrofon und Kamera)", L"Privacy (microfono e fotocamera)", L"隐私 (麦克风和摄像头)"},
     {L"Barra", L"Bar", L"Barra", L"Barre", L"Leiste", L"Barra", L"菜单栏"},
     {L"Idioma", L"Language", L"Idioma", L"Langue", L"Sprache", L"Lingua", L"语言"},
@@ -25616,6 +25656,8 @@ const UiTr kUiTr[] = {
     {L"Ajusta o tema escolhido em Fundo da barra; vale também para os menus, a Central, os painéis e as pílulas", L"Adjusts the theme chosen in Bar background; it also applies to menus, the Control Center, panels and pills", L"Ajusta el tema elegido en Fondo de la barra; vale también para los menús, el Centro de control, los paneles y las píldoras", L"Règle le thème choisi dans Fond de la barre ; s’applique aussi aux menus, au Centre de contrôle, aux panneaux et aux pastilles", L"Passt das unter Leistenhintergrund gewählte Design an; gilt auch für Menüs, Kontrollzentrum, Bereiche und Pillen", L"Regola il tema scelto in Sfondo della barra; vale anche per menu, Centro di Controllo, pannelli e pillole", L"调整在“菜单栏背景”中选择的主题；也适用于菜单、控制中心、面板和胶囊"},
     {L"Tema", L"Theme", L"Tema", L"Thème", L"Design", L"Tema", L"主题"},
     {L"Claro, Escuro e OLED são cores sólidas, sem ajustes de vidro.", L"Light, Dark and OLED are solid colors, with no glass settings.", L"Claro, Oscuro y OLED son colores sólidos, sin ajustes de vidrio.", L"Clair, Sombre et OLED sont des couleurs unies, sans réglages de verre.", L"Hell, Dunkel und OLED sind Volltonfarben, ohne Glaseinstellungen.", L"Chiaro, Scuro e OLED sono colori pieni, senza impostazioni del vetro.", L"浅色、深色和 OLED 是纯色，没有玻璃设置。"},
+    {L"Opacidade do fundo", L"Background opacity", L"Opacidad del fondo", L"Opacité du fond", L"Deckkraft des Hintergrunds", L"Opacità dello sfondo", L"背景不透明度"},
+    {L"Claro, Escuro e OLED: 100 = cor sólida; menos deixa a área de trabalho aparecer atrás da barra", L"Light, Dark and OLED: 100 = solid color; lower lets the desktop show through behind the bar", L"Claro, Oscuro y OLED: 100 = color sólido; menos deja ver el escritorio detrás de la barra", L"Clair, Sombre et OLED : 100 = couleur unie ; moins laisse voir le bureau derrière la barre", L"Hell, Dunkel und OLED: 100 = Volltonfarbe; weniger lässt den Desktop hinter der Leiste durchscheinen", L"Chiaro, Scuro e OLED: 100 = colore pieno; meno lascia vedere il desktop dietro la barra", L"浅色、深色和 OLED：100 = 纯色；数值越低，栏后面的桌面越能透出来"},
     {L"Restaurar o padrão deste tema", L"Restore this theme’s defaults", L"Restaurar los valores predeterminados de este tema", L"Restaurer les valeurs par défaut de ce thème", L"Standard dieses Designs wiederherstellen", L"Ripristina le impostazioni predefinite di questo tema", L"恢复此主题的默认设置"},
     {L"Volta os ajustes acima aos valores de quando o mod foi instalado", L"Puts the settings above back to their values when the mod was installed", L"Devuelve los ajustes de arriba a sus valores de cuando se instaló el mod", L"Remet les réglages ci-dessus à leurs valeurs d’installation du mod", L"Setzt die Einstellungen oben auf die Werte bei der Installation zurück", L"Riporta le impostazioni qui sopra ai valori di quando la mod è stata installata", L"将上面的设置恢复为安装模组时的值"},
     {L"Tema dos painéis", L"Panel theme", L"Tema de los paneles", L"Thème des panneaux", L"Design der Bereiche", L"Tema dei pannelli", L"面板主题"},
