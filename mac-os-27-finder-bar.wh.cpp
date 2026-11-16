@@ -359,7 +359,7 @@ struct Settings {
     int tintLevel, tintReach;  // força da cor no topo e até onde ela desce (%)
     int solidOpacity;          // opacidade do fundo Claro, Escuro e OLED da barra (%)
     int selBar;  // cor da seleção (barra, menus e pílulas): índice em kSelPalette, -1 = fosca
-    int searchTarget;     // ícone de busca: 0 pesquisa do Windows, 1 Siri Plus Launchpad
+    int searchTarget;     // ícone de busca: 0 pesquisa do Windows, 1 Siri Plus Launchpad, 2 Raycast
     int openAnim;  // 0 nenhuma, 1 esmaecer, 2 cascata
     int ntfIconShape;  // ícones das notificações: 0 círculo, 1 formato macOS (squircle)
     bool ntfCards;     // painel do sino: cartões soltos (true) ou tudo dentro da caixa
@@ -915,7 +915,10 @@ static void LoadSettings() {
     }
     s.solidOpacity = std::clamp(OvrInt(L"solidOpacity"), 0, 100);
     s.selBar = SelIndex(OvrStr(L"selectionBar"));
-    s.searchTarget = OvrStr(L"searchTarget") == L"siri" ? 1 : 0;
+    {
+        std::wstring st = OvrStr(L"searchTarget");
+        s.searchTarget = st == L"siri" ? 1 : st == L"raycast" ? 2 : 0;
+    }
     SetUiLangChoice(OvrStr(L"language"));
     {
         std::wstring a = ReadStr(L"openAnim");
@@ -12914,7 +12917,7 @@ static const BsRowDef kBsRows[] = {
     {BR_ITEM, BV_FOCUS, L"Foco (quando ativo)", 0xE708, 0x5E5CE6},
     {BR_ITEM, BV_SEARCH, L"Busca", 0xE721, 0x8E8E93},
     {BR_ITEM, BV_DISK, L"Discos", 0xEDA2, 0x8E8E93, L"Clique para ver os discos e quanto cada um está cheio"},
-    {BR_CHOICE, BV_SEARCHTGT, L"A busca abre", 0, 0, L"Siri Plus: a janela padrão dele, no estilo Spotlight"},
+    {BR_CHOICE, BV_SEARCHTGT, L"A busca abre", 0, 0, L"Siri Plus: a janela padrão dele, no estilo Spotlight. Raycast: a busca dele (precisa estar instalado)"},
     {BR_ITEM, BV_ISLHIST, L"Notificações (sino)", 0xEA8F, 0xFF375F, L"O sino abre as notificações e os avisos guardados"},
     {BR_ITEM, BV_PRIV, L"Privacidade (microfone e câmera)", 0xE720, 0xFF9F0A, L"Laranja e verde quando um app usa o microfone ou a câmera; clique para ver quem está usando e silenciar o microfone"},
     {BR_HEADER, BV_NONE, L"Barra", 0xE771, 0x0A84FF, L"Idioma, temas, tamanho e comportamento da barra"},
@@ -13441,8 +13444,9 @@ static void BsSet(int val, int v) {
         return;
     }
     if (val == BV_SEARCHTGT) {
-        g_settings.searchTarget = v == 1 ? 1 : 0;
-        OvrSetStr(L"searchTarget", g_settings.searchTarget ? L"siri" : L"windows");
+        static const PCWSTR kNames[] = {L"windows", L"siri", L"raycast"};
+        g_settings.searchTarget = v >= 0 && v <= 2 ? v : 0;
+        OvrSetStr(L"searchTarget", kNames[g_settings.searchTarget]);
         return;
     }
     if (val == BV_SELBAR) {
@@ -14001,7 +14005,7 @@ static const PCWSTR kBsWxProv[] = {L"Open-Meteo", L"MET Norway", L"wttr.in"};
 static const PCWSTR kBsWxUnit[] = {L"°C", L"°F"};
 static const PCWSTR kBsWxInt[] = {L"10 min", L"20 min", L"1 hora"};
 static const PCWSTR kBsWxLook[] = {L"Colorido", L"Vidro líquido", L"Vidro"};
-static const PCWSTR kBsSearchTgt[] = {L"Pesquisa do Windows", L"Siri Plus"};
+static const PCWSTR kBsSearchTgt[] = {L"Pesquisa do Windows", L"Siri Plus", L"Raycast"};
 static const PCWSTR kBsNpBar[] = {L"Linha", L"Linha colorida", L"Onda"};
 static const PCWSTR kBsLang[] = {L"Automático (Windows)", L"Português", L"English", L"Español",
                                  L"Français", L"Deutsch", L"Italiano", L"中文（简体）"};
@@ -14047,7 +14051,8 @@ static int BsChoiceCount(int val) {
     if (val >= BV_MONSTYLE0 && val < BV_MONTEXT0) return 8;
     if (val >= BV_MONTEXT0 && val < BV_MONEND) return 3;
     switch (val) {
-        case BV_ISLPOS: case BV_WXUNIT: case BV_SEARCHTGT: case BV_NTFSHAPE: case BV_NTFLAYOUT: return 2;
+        case BV_ISLPOS: case BV_WXUNIT: case BV_NTFSHAPE: case BV_NTFLAYOUT: return 2;
+        case BV_SEARCHTGT: return 3;
         case BV_FONTFAM:
             if (g_bsFonts.empty()) BsFontsRefresh();
             return (int)g_bsFonts.size();
@@ -22101,10 +22106,21 @@ static void KbdNavApply() {
     if (g_settings.kbdNav) RegisterHotKey(g_owner, HOTKEY_KBDNAV, MOD_CONTROL | MOD_NOREPEAT, VK_F2);
 }
 
-// Ícone de busca: a janela padrão do Siri Plus Launchpad ou a pesquisa do Windows.
+// Ícone de busca: a janela padrão do Siri Plus Launchpad, o Raycast ou a pesquisa do Windows.
 // Os dois mods rodam no explorer.exe: a janela "WindhawkMacLaunchpad" do Siri Plus
 // abre (ou fecha) com WM_APP + 1, a mesma mensagem que a tecla Windows manda.
+// O Raycast (pacote da Microsoft Store) mostra a janela de busca quando é aberto de
+// novo; se ainda não estiver rodando, abrir o inicia.
 static void SearchOpen() {
+    if (g_settings.searchTarget == 2) {
+        SHELLEXECUTEINFOW sei = {sizeof(sei)};
+        sei.fMask = SEE_MASK_FLAG_NO_UI;
+        sei.lpVerb = L"open";
+        sei.lpFile = L"shell:AppsFolder\\Raycast.Raycast_qypenmj9wpt2a!Raycast";
+        sei.nShow = SW_SHOWNORMAL;
+        if (ShellExecuteExW(&sei)) return;
+        IslandShow(0xE721, 0x8E8E93, L"Raycast", L"Não encontrado: abrindo a pesquisa do Windows", L"", false, true);
+    }
     if (g_settings.searchTarget == 1) {
         if (HWND siri = FindWindowW(L"WindhawkMacLaunchpad", nullptr)) {
             PostMessageW(siri, WM_APP + 1, 0, 0);
@@ -25506,7 +25522,8 @@ const UiTr kUiTr[] = {
     {L"Abrir Este Computador", L"Open This PC", L"Abrir Este equipo", L"Ouvrir Ce PC", L"Dieser PC öffnen", L"Apri Questo PC", L"打开此电脑"},
     {L"Armazenamento...", L"Storage...", L"Almacenamiento...", L"Stockage...", L"Speicher...", L"Archiviazione...", L"存储..."},
     {L"A busca abre", L"Search opens", L"La búsqueda abre", L"La recherche ouvre", L"Die Suche öffnet", L"La ricerca apre", L"搜索打开"},
-    {L"Siri Plus: a janela padrão dele, no estilo Spotlight", L"Siri Plus: its default window, Spotlight style", L"Siri Plus: su ventana predeterminada, estilo Spotlight", L"Siri Plus : sa fenêtre par défaut, style Spotlight", L"Siri Plus: sein Standardfenster im Spotlight-Stil", L"Siri Plus: la sua finestra predefinita, stile Spotlight", L"Siri Plus: 其默认窗口 (Spotlight 风格)"},
+    {L"Siri Plus: a janela padrão dele, no estilo Spotlight. Raycast: a busca dele (precisa estar instalado)", L"Siri Plus: its default window, Spotlight style. Raycast: its search (must be installed)", L"Siri Plus: su ventana predeterminada, estilo Spotlight. Raycast: su búsqueda (debe estar instalado)", L"Siri Plus : sa fenêtre par défaut, style Spotlight. Raycast : sa recherche (doit être installé)", L"Siri Plus: sein Standardfenster im Spotlight-Stil. Raycast: seine Suche (muss installiert sein)", L"Siri Plus: la sua finestra predefinita, stile Spotlight. Raycast: la sua ricerca (deve essere installato)", L"Siri Plus: 其默认窗口 (Spotlight 风格)。Raycast: 其搜索 (需要已安装)"},
+    {L"Não encontrado: abrindo a pesquisa do Windows", L"Not found: opening Windows Search", L"No encontrado: abriendo la búsqueda de Windows", L"Introuvable : ouverture de la recherche Windows", L"Nicht gefunden: Windows-Suche wird geöffnet", L"Non trovato: apertura della ricerca di Windows", L"未找到：正在打开 Windows 搜索"},
     {L"Privacidade (microfone e câmera)", L"Privacy (microphone and camera)", L"Privacidad (micrófono y cámara)", L"Confidentialité (micro et caméra)", L"Datenschutz (Mikrofon und Kamera)", L"Privacy (microfono e fotocamera)", L"隐私 (麦克风和摄像头)"},
     {L"Barra", L"Bar", L"Barra", L"Barre", L"Leiste", L"Barra", L"菜单栏"},
     {L"Idioma", L"Language", L"Idioma", L"Langue", L"Sprache", L"Lingua", L"语言"},
